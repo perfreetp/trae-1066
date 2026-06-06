@@ -1,0 +1,63 @@
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+
+export async function generatePDF(elementId: string, fileName: string): Promise<void> {
+  const element = document.getElementById(elementId);
+  if (!element) {
+    throw new Error('Element not found');
+  }
+
+  const canvas = await html2canvas(element, {
+    scale: 2,
+    useCORS: true,
+    logging: false,
+    backgroundColor: '#ffffff',
+  });
+
+  const imgData = canvas.toDataURL('image/png');
+  const pdf = new jsPDF('p', 'mm', 'a4');
+  
+  const imgWidth = 210;
+  const pageHeight = 297;
+  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  
+  let heightLeft = imgHeight;
+  let position = 0;
+
+  pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+  heightLeft -= pageHeight;
+
+  while (heightLeft >= 0) {
+    position = heightLeft - imgHeight;
+    pdf.addPage();
+    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+  }
+
+  pdf.save(`${fileName}.pdf`);
+}
+
+export function generateSimplePDF(title: string, content: string, fileName: string): void {
+  const pdf = new jsPDF('p', 'mm', 'a4');
+  
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(18);
+  pdf.text(title, 105, 20, { align: 'center' });
+  
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(12);
+  
+  const lines = pdf.splitTextToSize(content.replace(/<[^>]*>/g, ''), 180);
+  let y = 35;
+  
+  for (const line of lines) {
+    if (y > 280) {
+      pdf.addPage();
+      y = 20;
+    }
+    pdf.text(line, 15, y);
+    y += 7;
+  }
+  
+  pdf.save(`${fileName}.pdf`);
+}
