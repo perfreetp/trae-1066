@@ -21,7 +21,7 @@ import { getMaxRainfall, getOverWarningStations, getDangerousReservoirs, getTota
 const quickActions = [
   { label: '资料导入', icon: FileUp, path: '/import', color: 'bg-blue-500' },
   { label: '数据核对', icon: FileText, path: '/verify', color: 'bg-green-500' },
-  { label: '日报编辑', icon: Edit3, path: '/report', color: 'bg-purple-500' },
+  { label: '日报编辑', icon: Edit3, path: '/editor', color: 'bg-purple-500' },
   { label: '分发归档', icon: Send, path: '/archive', color: 'bg-orange-500' },
 ];
 
@@ -179,7 +179,7 @@ export default function Dashboard() {
         <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">最新预警</h2>
-            <button onClick={() => navigate('/warning')} className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
+            <button onClick={() => navigate('/warnings')} className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
               查看全部 <ChevronRight className="h-4 w-4" />
             </button>
           </div>

@@ -5,10 +5,8 @@ import {
   FileText,
   Download,
   Search,
-  Filter,
   Calendar,
   User,
-  ChevronDown,
   Eye,
   Trash2,
   Paperclip,
@@ -18,12 +16,16 @@ import {
   Clock,
   X,
   Plus,
+  AlertCircle,
+  FileSpreadsheet,
+  FileImage,
+  History,
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
-import type { DailyReport, ReportStatus } from '@/types';
+import type { DailyReport, ReportStatus, SendRecord, Attachment } from '@/types';
 import { cn } from '@/lib/utils';
 import dayjs from 'dayjs';
-import { generatePDF } from '@/utils/pdfGenerator';
+import { generateSimplePDF } from '@/utils/pdfGenerator';
 
 const mockArchivedReports: DailyReport[] = [
   {
@@ -50,18 +52,6 @@ const mockArchivedReports: DailyReport[] = [
     updateTime: '2024-06-19 17:20',
     creator: '李四',
   },
-  {
-    id: '3',
-    date: '2024-06-18',
-    title: '防汛值班日报（2024年6月18日）',
-    content: '<p>今日晴转多云...</p>',
-    leaderComments: '',
-    versions: [],
-    status: 'archived',
-    createTime: '2024-06-18 17:00',
-    updateTime: '2024-06-18 17:15',
-    creator: '张三',
-  },
 ];
 
 const mockRecipients = [
@@ -72,24 +62,23 @@ const mockRecipients = [
   { id: '5', name: '陈站长', department: '水文站', email: 'chen@water.gov.cn', phone: '138****1005' },
 ];
 
-const mockAttachments = [
-  { id: '1', name: '雨量站数据.xlsx', size: '245KB', uploadTime: '2024-06-20 16:30' },
-  { id: '2', name: '水位监测表.csv', size: '128KB', uploadTime: '2024-06-20 16:35' },
-  { id: '3', name: '现场照片.jpg', size: '2.3MB', uploadTime: '2024-06-20 16:40' },
-];
-
 export default function ArchivePage() {
-  const [activeTab, setActiveTab] = useState<'distribute' | 'archive' | 'attachments'>('distribute');
+  const [activeTab, setActiveTab] = useState<'distribute' | 'records' | 'archive' | 'attachments'>('distribute');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [showSendModal, setShowSendModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [showEmptyReportTip, setShowEmptyReportTip] = useState(false);
   const [selectedReport, setSelectedReport] = useState<DailyReport | null>(null);
   const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
   const [sendMethod, setSendMethod] = useState<'email' | 'sms' | 'both'>('email');
 
   const currentReport = useStore((state) => state.currentReport);
+  const attachments = useStore((state) => state.attachments);
+  const sendRecords = useStore((state) => state.sendRecords);
+  const removeAttachment = useStore((state) => state.removeAttachment);
+  const addSendRecord = useStore((state) => state.addSendRecord);
 
   const getStatusBadge = (status: ReportStatus) => {
     switch (status) {
@@ -120,6 +109,45 @@ export default function ArchivePage() {
     }
   };
 
+  const getSendStatusBadge = (status: SendRecord['status']) => {
+    switch (status) {
+      case 'success':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+            <CheckCircle className="h-3 w-3" />
+            发送成功
+          </span>
+        );
+      case 'failed':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+            <AlertCircle className="h-3 w-3" />
+            发送失败
+          </span>
+        );
+      case 'sending':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700">
+            <Clock className="h-3 w-3 animate-spin" />
+            发送中
+          </span>
+        );
+    }
+  };
+
+  const getFileTypeIcon = (fileType: Attachment['fileType']) => {
+    switch (fileType) {
+      case 'excel':
+        return <FileSpreadsheet className="h-5 w-5 text-green-600" />;
+      case 'word':
+        return <FileText className="h-5 w-5 text-blue-600" />;
+      case 'image':
+        return <FileImage className="h-5 w-5 text-purple-600" />;
+      default:
+        return <Paperclip className="h-5 w-5 text-gray-600" />;
+    }
+  };
+
   const filteredReports = mockArchivedReports.filter((report) => {
     if (searchQuery && !report.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     if (statusFilter !== 'all' && report.status !== statusFilter) return false;
@@ -133,9 +161,23 @@ export default function ArchivePage() {
   };
 
   const handleConfirmSend = () => {
-    alert(`已通过${sendMethod === 'email' ? '邮件' : sendMethod === 'sms' ? '短信' : '邮件和短信'}发送给${selectedRecipients.length}位收件人`);
+    if (selectedRecipients.length === 0) return;
+
+    const recipients = mockRecipients.filter((r) => selectedRecipients.includes(r.id));
+    const record: SendRecord = {
+      id: `send_${Date.now()}`,
+      reportId: currentReport.id,
+      reportTitle: currentReport.title,
+      sendTime: dayjs().format('YYYY-MM-DD HH:mm'),
+      sendMethod,
+      recipients: recipients.map((r) => ({ id: r.id, name: r.name, department: r.department })),
+      status: 'success',
+    };
+
+    addSendRecord(record);
     setShowSendModal(false);
     setSelectedRecipients([]);
+    setActiveTab('records');
   };
 
   const handlePreview = (report: DailyReport) => {
@@ -144,12 +186,25 @@ export default function ArchivePage() {
   };
 
   const handleDownloadPDF = async (report: DailyReport) => {
-    alert(`正在下载 ${report.title} 的PDF文件...`);
+    try {
+      const content = report.content.replace(/<[^>]*>/g, '');
+      await generateSimplePDF(report.title, content, report.leaderComments.replace(/<[^>]*>/g, ''));
+    } catch (error) {
+      console.error('PDF生成失败:', error);
+    }
   };
 
   const handleExportPDF = async () => {
+    const plainContent = currentReport.content.replace(/<[^>]*>/g, '').trim();
+    if (!plainContent) {
+      setShowEmptyReportTip(true);
+      setTimeout(() => setShowEmptyReportTip(false), 3000);
+      return;
+    }
+
     try {
-      await generatePDF('report-content', '防汛值班日报');
+      const leaderComments = currentReport.leaderComments.replace(/<[^>]*>/g, '');
+      await generateSimplePDF(currentReport.title, plainContent, leaderComments);
     } catch (error) {
       console.error('PDF生成失败:', error);
     }
@@ -169,14 +224,37 @@ export default function ArchivePage() {
     }
   };
 
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const getSendMethodText = (method: SendRecord['sendMethod']) => {
+    switch (method) {
+      case 'email': return '邮件';
+      case 'sms': return '短信';
+      case 'both': return '邮件+短信';
+    }
+  };
+
+  const todayStr = dayjs().format('YYYY-MM-DD');
+  const todaySendCount = sendRecords.filter((r) => r.sendTime.startsWith(todayStr)).length;
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">分发归档</h1>
-          <p className="mt-1 text-sm text-gray-500">报告分发、历史归档和附件管理</p>
+          <p className="mt-1 text-sm text-gray-500">报告分发、发送记录、历史归档和附件管理</p>
         </div>
         <div className="flex items-center gap-3">
+          {showEmptyReportTip && (
+            <span className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm">
+              <AlertCircle className="h-4 w-4" />
+              当前日报暂无正文内容，请先在日报编辑中填写
+            </span>
+          )}
           <button
             onClick={handleExportPDF}
             className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-50 transition-colors"
@@ -199,6 +277,7 @@ export default function ArchivePage() {
           <div className="flex">
             {[
               { key: 'distribute', label: '报告分发', icon: Send },
+              { key: 'records', label: '发送记录', icon: History },
               { key: 'archive', label: '历史归档', icon: Archive },
               { key: 'attachments', label: '附件管理', icon: Paperclip },
             ].map((tab) => (
@@ -241,7 +320,7 @@ export default function ArchivePage() {
                     </div>
                     <div>
                       <p className="text-sm text-green-600">今日已发送</p>
-                      <p className="text-2xl font-bold text-green-700">5</p>
+                      <p className="text-2xl font-bold text-green-700">{todaySendCount}</p>
                     </div>
                   </div>
                 </div>
@@ -268,6 +347,9 @@ export default function ArchivePage() {
                     <div>
                       <p className="font-medium text-gray-900">{currentReport.title}</p>
                       <p className="text-sm text-gray-500">创建于 {currentReport.createTime} · {currentReport.creator}</p>
+                      {!currentReport.content.replace(/<[^>]*>/g, '').trim() && (
+                        <p className="text-xs text-yellow-600 mt-1">⚠️ 暂无正文内容</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -275,12 +357,14 @@ export default function ArchivePage() {
                     <button
                       onClick={() => handlePreview(currentReport)}
                       className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                      title="预览"
                     >
                       <Eye className="h-4 w-4" />
                     </button>
                     <button
                       onClick={handleExportPDF}
                       className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                      title="下载PDF"
                     >
                       <Download className="h-4 w-4" />
                     </button>
@@ -334,6 +418,61 @@ export default function ArchivePage() {
                   ))}
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'records' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-700">发送记录</h3>
+                <span className="text-sm text-gray-500">共 {sendRecords.length} 条记录</span>
+              </div>
+              {sendRecords.length === 0 ? (
+                <div className="text-center py-12">
+                  <History className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-sm text-gray-500">暂无发送记录</p>
+                  <p className="text-xs text-gray-400 mt-1">发送报告后，记录将显示在这里</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {sendRecords.slice().reverse().map((record) => (
+                    <div key={record.id} className="rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600 flex-shrink-0">
+                            <Send className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">{record.reportTitle}</p>
+                            <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3.5 w-3.5" />
+                                {record.sendTime}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Mail className="h-3.5 w-3.5" />
+                                {getSendMethodText(record.sendMethod)}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <User className="h-3.5 w-3.5" />
+                                {record.recipients.length}人
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {record.recipients.map((r) => (
+                                <span key={r.id} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                                  {r.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        {getSendStatusBadge(record.status)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -436,40 +575,49 @@ export default function ArchivePage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium text-gray-700">附件列表</h3>
-                <button className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors">
-                  <Plus className="h-4 w-4" />
-                  上传附件
-                </button>
+                <span className="text-sm text-gray-500">共 {attachments.length} 个文件</span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {mockAttachments.map((attachment) => (
-                  <div
-                    key={attachment.id}
-                    className="rounded-xl border border-gray-200 p-4 hover:border-primary-200 hover:shadow-sm transition-all"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100 text-green-600 flex-shrink-0">
-                        <Paperclip className="h-5 w-5" />
+              {attachments.length === 0 ? (
+                <div className="text-center py-12">
+                  <Paperclip className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-sm text-gray-500">暂无附件</p>
+                  <p className="text-xs text-gray-400 mt-1">在资料导入页面上传Word、图片等文件后，会自动添加到这里</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {attachments.map((attachment) => (
+                    <div
+                      key={attachment.id}
+                      className="rounded-xl border border-gray-200 p-4 hover:border-primary-200 hover:shadow-sm transition-all"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 flex-shrink-0">
+                          {getFileTypeIcon(attachment.fileType)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900 truncate">{attachment.name}</p>
+                          <p className="text-xs text-gray-500 mt-1">{formatFileSize(attachment.size)} · {attachment.uploadTime}</p>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate">{attachment.name}</p>
-                        <p className="text-xs text-gray-500 mt-1">{attachment.size} · {attachment.uploadTime}</p>
+                      <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-gray-100">
+                        <button className="p-1.5 text-gray-400 hover:text-primary-600 rounded transition-colors" title="预览">
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button className="p-1.5 text-gray-400 hover:text-primary-600 rounded transition-colors" title="下载">
+                          <Download className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => removeAttachment(attachment.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-600 rounded transition-colors"
+                          title="删除"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-gray-100">
-                      <button className="p-1.5 text-gray-400 hover:text-primary-600 rounded transition-colors">
-                        <Eye className="h-4 w-4" />
-                      </button>
-                      <button className="p-1.5 text-gray-400 hover:text-primary-600 rounded transition-colors">
-                        <Download className="h-4 w-4" />
-                      </button>
-                      <button className="p-1.5 text-gray-400 hover:text-red-600 rounded transition-colors">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -533,9 +681,34 @@ export default function ArchivePage() {
                       ) : null;
                     })
                   ) : (
-                    <span className="text-sm text-gray-400">请从左侧列表选择收件人</span>
+                    <span className="text-sm text-gray-400">请在下方收件人列表中选择</span>
                   )}
                 </div>
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-1">
+                {mockRecipients.map((recipient) => (
+                  <div
+                    key={recipient.id}
+                    onClick={() => toggleRecipient(recipient.id)}
+                    className={cn(
+                      'flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors',
+                      selectedRecipients.includes(recipient.id) ? 'bg-primary-50' : 'hover:bg-gray-50'
+                    )}
+                  >
+                    <div className={cn(
+                      'h-4 w-4 rounded border flex items-center justify-center transition-colors',
+                      selectedRecipients.includes(recipient.id)
+                        ? 'bg-primary-600 border-primary-600'
+                        : 'border-gray-300'
+                    )}>
+                      {selectedRecipients.includes(recipient.id) && (
+                        <CheckCircle className="h-2.5 w-2.5 text-white" />
+                      )}
+                    </div>
+                    <span className="text-sm text-gray-700">{recipient.name}</span>
+                    <span className="text-xs text-gray-400">- {recipient.department}</span>
+                  </div>
+                ))}
               </div>
               <div className="flex gap-3 pt-2">
                 <button

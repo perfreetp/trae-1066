@@ -1,8 +1,8 @@
 import { useState, useCallback } from 'react';
-import { Upload, FileSpreadsheet, FileText, Image, X, CheckCircle, AlertCircle, ChevronDown, Settings } from 'lucide-react';
-import { parseExcelFile, detectFileType, mapToRainfallStations, mapToWaterLevelStations } from '@/utils/fileParser';
+import { Upload, FileSpreadsheet, FileText, Image, X, CheckCircle, AlertCircle, ChevronDown, Settings, Paperclip } from 'lucide-react';
+import { parseExcelFile, detectFileType, mapToRainfallStations, mapToWaterLevelStations, mapToReservoirs, mapToPumpStations } from '@/utils/fileParser';
 import { useStore } from '@/store/useStore';
-import type { ImportedFile } from '@/types';
+import type { ImportedFile, Attachment } from '@/types';
 import { cn } from '@/lib/utils';
 
 export default function DataImport() {
@@ -12,15 +12,21 @@ export default function DataImport() {
   const [previewData, setPreviewData] = useState<any[]>([]);
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [showBasinDropdown, setShowBasinDropdown] = useState(false);
+  const [importMessage, setImportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const importedFiles = useStore((state) => state.importedFiles);
   const addImportedFile = useStore((state) => state.addImportedFile);
   const updateImportedFile = useStore((state) => state.updateImportedFile);
   const setRainfallStations = useStore((state) => state.setRainfallStations);
   const setWaterLevelStations = useStore((state) => state.setWaterLevelStations);
+  const setReservoirs = useStore((state) => state.setReservoirs);
+  const setPumpStations = useStore((state) => state.setPumpStations);
+  const addAttachment = useStore((state) => state.addAttachment);
   const systemConfig = useStore((state) => state.systemConfig);
   const rainfallStations = useStore((state) => state.rainfallStations);
   const waterLevelStations = useStore((state) => state.waterLevelStations);
+  const reservoirs = useStore((state) => state.reservoirs);
+  const pumpStations = useStore((state) => state.pumpStations);
 
   const fileTypes = [
     { value: 'auto', label: '自动识别', icon: Settings },
@@ -65,8 +71,12 @@ export default function DataImport() {
     addImportedFile(importedFile);
 
     try {
+      const isExcelFile = file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv');
+      const isWordFile = file.name.endsWith('.doc') || file.name.endsWith('.docx');
+      const isImageFile = /\.(jpg|jpeg|png|gif|bmp)$/i.test(file.name);
+
       let data: any[] = [];
-      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv')) {
+      if (isExcelFile) {
         data = await parseExcelFile(file);
       }
 
@@ -75,15 +85,65 @@ export default function DataImport() {
         detectedType = detectFileType(file.name);
       }
 
-      if (detectedType === 'rainfall') {
-        const result = mapToRainfallStations(data, selectedBasin ? { '': selectedBasin } : undefined);
-        if (result.success) {
-          setRainfallStations([...rainfallStations, ...result.data]);
+      let importedCount = 0;
+      let importedType = '';
+
+      if (isExcelFile) {
+        if (detectedType === 'rainfall') {
+          const result = mapToRainfallStations(data, selectedBasin ? { '': selectedBasin } : undefined);
+          if (result.success && result.data.length > 0) {
+            setRainfallStations([...rainfallStations, ...result.data]);
+            importedCount = result.data.length;
+            importedType = '雨量站';
+          }
+        } else if (detectedType === 'waterLevel') {
+          const result = mapToWaterLevelStations(data, selectedBasin ? { '': selectedBasin } : undefined);
+          if (result.success && result.data.length > 0) {
+            setWaterLevelStations([...waterLevelStations, ...result.data]);
+            importedCount = result.data.length;
+            importedType = '水位站';
+          }
+        } else if (detectedType === 'reservoir') {
+          const result = mapToReservoirs(data, selectedBasin ? { '': selectedBasin } : undefined);
+          if (result.success && result.data.length > 0) {
+            setReservoirs([...reservoirs, ...result.data]);
+            importedCount = result.data.length;
+            importedType = '水库';
+          }
+        } else if (detectedType === 'pump') {
+          const result = mapToPumpStations(data, selectedBasin ? { '': selectedBasin } : undefined);
+          if (result.success && result.data.length > 0) {
+            setPumpStations([...pumpStations, ...result.data]);
+            importedCount = result.data.length;
+            importedType = '泵站';
+          }
         }
-      } else if (detectedType === 'waterLevel') {
-        const result = mapToWaterLevelStations(data, selectedBasin ? { '': selectedBasin } : undefined);
-        if (result.success) {
-          setWaterLevelStations([...waterLevelStations, ...result.data]);
+
+        if (importedCount > 0) {
+          setImportMessage({ type: 'success', text: `成功导入 ${importedCount} 条${importedType}数据` });
+          setTimeout(() => setImportMessage(null), 3000);
+        }
+      }
+
+      if (!isExcelFile || isWordFile || isImageFile) {
+        let fileType: Attachment['fileType'] = 'other';
+        if (isWordFile) fileType = 'word';
+        else if (isImageFile) fileType = 'image';
+        else if (isExcelFile) fileType = 'excel';
+
+        const attachment: Attachment = {
+          id: `attach_${Date.now()}`,
+          name: file.name,
+          size: file.size,
+          uploadTime: new Date().toISOString().slice(0, 16).replace('T', ' '),
+          type: file.type,
+          fileType,
+        };
+        addAttachment(attachment);
+
+        if (!isExcelFile) {
+          setImportMessage({ type: 'success', text: `文件 "${file.name}" 已添加到附件列表` });
+          setTimeout(() => setImportMessage(null), 3000);
         }
       }
 
@@ -91,6 +151,8 @@ export default function DataImport() {
       updateImportedFile(fileId, { status: 'success', data });
     } catch (error) {
       updateImportedFile(fileId, { status: 'error' });
+      setImportMessage({ type: 'error', text: `文件导入失败: ${error}` });
+      setTimeout(() => setImportMessage(null), 3000);
     }
   };
 
@@ -119,6 +181,25 @@ export default function DataImport() {
         <h1 className="text-2xl font-bold text-gray-900">资料导入</h1>
         <p className="mt-1 text-sm text-gray-500">上传雨量、水位、水库、泵站等数据文件</p>
       </div>
+
+      {importMessage && (
+        <div className={cn(
+          'rounded-lg p-4 flex items-center gap-3',
+          importMessage.type === 'success' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+        )}>
+          {importMessage.type === 'success' ? (
+            <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+          ) : (
+            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
+          )}
+          <p className={cn(
+            'text-sm',
+            importMessage.type === 'success' ? 'text-green-700' : 'text-red-700'
+          )}>
+            {importMessage.text}
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">

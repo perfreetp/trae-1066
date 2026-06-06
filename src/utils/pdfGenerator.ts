@@ -37,7 +37,7 @@ export async function generatePDF(elementId: string, fileName: string): Promise<
   pdf.save(`${fileName}.pdf`);
 }
 
-export function generateSimplePDF(title: string, content: string, fileName: string): void {
+export function generateSimplePDF(title: string, content: string, leaderComments?: string): void {
   const pdf = new jsPDF('p', 'mm', 'a4');
   
   pdf.setFont('helvetica', 'bold');
@@ -45,13 +45,17 @@ export function generateSimplePDF(title: string, content: string, fileName: stri
   pdf.text(title, 105, 20, { align: 'center' });
   
   pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  pdf.text(`生成时间：${new Date().toLocaleString('zh-CN')}`, 105, 30, { align: 'center' });
+  
+  pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(12);
   
-  const lines = pdf.splitTextToSize(content.replace(/<[^>]*>/g, ''), 180);
-  let y = 35;
+  let y = 40;
   
-  for (const line of lines) {
-    if (y > 280) {
+  const contentLines = pdf.splitTextToSize(content, 180);
+  for (const line of contentLines) {
+    if (y > 260) {
       pdf.addPage();
       y = 20;
     }
@@ -59,5 +63,29 @@ export function generateSimplePDF(title: string, content: string, fileName: stri
     y += 7;
   }
   
-  pdf.save(`${fileName}.pdf`);
+  if (leaderComments && leaderComments.trim()) {
+    y += 5;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(12);
+    if (y > 270) {
+      pdf.addPage();
+      y = 20;
+    }
+    pdf.text('领导批示：', 15, y);
+    y += 8;
+    
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(11);
+    const commentLines = pdf.splitTextToSize(leaderComments, 170);
+    for (const line of commentLines) {
+      if (y > 280) {
+        pdf.addPage();
+        y = 20;
+      }
+      pdf.text(line, 20, y);
+      y += 6;
+    }
+  }
+  
+  pdf.save(`${title}.pdf`);
 }

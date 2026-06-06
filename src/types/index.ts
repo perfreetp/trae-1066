@@ -124,3 +124,23 @@ export interface BasinSummary {
   dangerousReservoirCount: number;
   drainageVolume: number;
 }
+
+export interface Attachment {
+  id: string;
+  name: string;
+  size: number;
+  uploadTime: string;
+  type: string;
+  fileType: 'excel' | 'word' | 'image' | 'other';
+}
+
+export interface SendRecord {
+  id: string;
+  reportId: string;
+  reportTitle: string;
+  sendTime: string;
+  sendMethod: 'email' | 'sms' | 'both';
+  recipients: { id: string; name: string; department: string }[];
+  status: 'success' | 'failed' | 'sending';
+  remark?: string;
+}
